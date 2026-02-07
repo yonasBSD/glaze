@@ -544,9 +544,12 @@ namespace glz
    constexpr bool write_can_error()
    {
       using V = std::remove_cvref_t<T>;
-      if constexpr (requires {
-                       { to<JSON, V>::can_error } -> std::convertible_to<bool>;
-                    }) {
+      if constexpr (always_skipped<V>) {
+         return false; // hidden/skip types are never written
+      }
+      else if constexpr (requires {
+                            { to<JSON, V>::can_error } -> std::convertible_to<bool>;
+                         }) {
          return to<JSON, V>::can_error;
       }
       else {
