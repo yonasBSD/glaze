@@ -10,6 +10,7 @@
 #include <cstring>
 #include <functional>
 #include <initializer_list>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <type_traits>
@@ -87,6 +88,27 @@ namespace glz
 
       [[no_unique_address]] Hash hash_;
       [[no_unique_address]] KeyEqual equal_;
+
+      template <class...>
+      struct first_emplace_arg;
+
+      template <class First, class... Rest>
+      struct first_emplace_arg<First, Rest...>
+      {
+         using type = First;
+      };
+
+      template <class... Args>
+      struct emplace_starts_with_key_impl : std::false_type
+      {};
+
+      template <class First, class... Rest>
+      struct emplace_starts_with_key_impl<First, Rest...>
+         : std::bool_constant<std::constructible_from<key_type, typename first_emplace_arg<First, Rest...>::type>>
+      {};
+
+      template <class... Args>
+      static constexpr bool emplace_starts_with_key = emplace_starts_with_key_impl<Args...>::value;
 
       // --- Hash helpers ---
 
@@ -451,6 +473,17 @@ namespace glz
       template <class InputIt>
       void insert(InputIt first, InputIt last)
       {
+         if constexpr (std::forward_iterator<InputIt>) {
+            const auto distance = std::distance(first, last);
+            if (distance > 0) {
+               const auto additional = static_cast<size_type>(distance);
+               const auto current = values_.size();
+               const auto max_size = (std::numeric_limits<size_type>::max)();
+               const auto target = (additional > (max_size - current)) ? max_size : (current + additional);
+               reserve(target);
+            }
+         }
+
          for (; first != last; ++first) {
             insert(*first);
          }
@@ -510,6 +543,19 @@ namespace glz
       }
 
       template <class... Args>
+      std::pair<iterator, bool> emplace(const key_type& key, Args&&... args)
+      {
+         return try_emplace(key, std::forward<Args>(args)...);
+      }
+
+      template <class... Args>
+      std::pair<iterator, bool> emplace(key_type&& key, Args&&... args)
+      {
+         return try_emplace(std::move(key), std::forward<Args>(args)...);
+      }
+
+      template <class... Args>
+         requires(std::constructible_from<value_type, Args...> && !emplace_starts_with_key<Args...>)
       std::pair<iterator, bool> emplace(Args&&... args)
       {
          value_type value(std::forward<Args>(args)...);
@@ -519,6 +565,10 @@ namespace glz
       // Ordered erase: preserves insertion order. O(n) because it shifts elements.
       iterator erase(const_iterator pos)
       {
+         if (pos == values_.cend()) [[unlikely]] {
+            return values_.end();
+         }
+
          const auto erased_idx = static_cast<uint32_t>(pos - values_.cbegin());
 
          // Remove from bucket array
@@ -568,12 +618,12 @@ namespace glz
 
       size_type erase(const key_type& key)
       {
-         auto it = find(key);
-         if (it != end()) {
-            erase(it);
-            return 1;
+         const uint32_t bi = find_bucket(key);
+         if (bi == bucket_count_) {
+            return 0;
          }
-         return 0;
+         erase(values_.cbegin() + buckets_[bi].index);
+         return 1;
       }
 
       template <class K>
@@ -581,12 +631,12 @@ namespace glz
                   !std::convertible_to<K, const_iterator>)
       size_type erase(const K& key)
       {
-         auto it = find(key);
-         if (it != end()) {
-            erase(it);
-            return 1;
+         const uint32_t bi = find_bucket(key);
+         if (bi == bucket_count_) {
+            return 0;
          }
-         return 0;
+         erase(values_.cbegin() + buckets_[bi].index);
+         return 1;
       }
 
       // Unordered erase: O(1) amortized. Swaps erased element with last, does NOT preserve insertion order.
