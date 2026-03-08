@@ -528,8 +528,9 @@ namespace glz
                         ctx.error = error_code::syntax_error;
                         return;
                      }
-                     *dst++ = static_cast<char>((hi << 4) | lo);
+                     const uint32_t codepoint = (hi << 4) | lo;
                      src += 2;
+                     dst += code_point_to_utf8(codepoint, dst);
                      break;
                   }
                   case 'u': {
@@ -3530,7 +3531,10 @@ namespace glz
                                     if (!ctx.push_indent(nested_indent)) [[unlikely]]
                                        return false;
                                  }
+                                 const bool prev_allow_indentless_sequence = ctx.allow_indentless_sequence;
+                                 ctx.allow_indentless_sequence = (nested_indent <= line_indent);
                                  from<YAML, member_type>::template op<Opts>(member, ctx, it, end);
+                                 ctx.allow_indentless_sequence = prev_allow_indentless_sequence;
                                  ctx.pop_indent();
                               }
                            }
@@ -3548,6 +3552,14 @@ namespace glz
                      // Skip unknown value
                      if (it != end && !yaml::line_end_or_comment_table[static_cast<uint8_t>(*it)]) {
                         skip_yaml_value<Opts>(ctx, it, end, line_indent, false);
+                     }
+                     else {
+                        // Value may be on the next line (block sequence, mapping, etc.)
+                        int32_t nested_indent = detect_nested_value_indent(ctx, it, end, line_indent);
+                        if (nested_indent >= 0) {
+                           skip_to_content(it, end);
+                           skip_yaml_value<Opts>(ctx, it, end, line_indent, false);
+                        }
                      }
                   }
                }

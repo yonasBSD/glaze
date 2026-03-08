@@ -1224,7 +1224,7 @@ suite yaml_tag_tests = [] {
       std::string value;
       auto ec = glz::read_yaml(value, yaml);
       expect(!ec) << glz::format_error(ec, yaml);
-      expect(value == "\xff");
+      expect(value == "\xc3\xbf");
    };
 
    "dq_escape_hex_lowercase"_test = [] {
@@ -3295,6 +3295,98 @@ extra: *a)";
       expect(obj.x == 1);
       expect(obj.y == 1.0);
       expect(obj.name == "skipped");
+   };
+
+   // https://github.com/stephenberry/glaze/issues/2352
+   "skip_unknown_indentless_sequence"_test = [] {
+      // Unindented sequence under unknown key
+      {
+         std::string yaml = R"(---
+x: 1
+y: 1.0
+name: foo
+c:
+- baz
+...)";
+         simple_struct data{};
+         auto ec = glz::read_yaml<glz::yaml::yaml_opts{.error_on_unknown_keys = false}>(data, yaml);
+         expect(!ec) << glz::format_error(ec, yaml);
+         expect(data.x == 1);
+         expect(data.y == 1.0);
+         expect(data.name == "foo");
+      }
+
+      // Multiple items in unknown indentless sequence
+      {
+         std::string yaml = R"(x: 1
+c:
+- baz1
+- baz2
+y: 2.0
+name: bar)";
+         simple_struct data{};
+         auto ec = glz::read_yaml<glz::yaml::yaml_opts{.error_on_unknown_keys = false}>(data, yaml);
+         expect(!ec) << glz::format_error(ec, yaml);
+         expect(data.x == 1);
+         expect(data.y == 2.0);
+         expect(data.name == "bar");
+      }
+
+      // Unknown key with indented (normal) block sequence on next line
+      {
+         std::string yaml = R"(x: 1
+c:
+  - baz1
+  - baz2
+y: 2.0
+name: bar)";
+         simple_struct data{};
+         auto ec = glz::read_yaml<glz::yaml::yaml_opts{.error_on_unknown_keys = false}>(data, yaml);
+         expect(!ec) << glz::format_error(ec, yaml);
+         expect(data.x == 1);
+         expect(data.y == 2.0);
+         expect(data.name == "bar");
+      }
+   };
+
+   // https://github.com/stephenberry/glaze/issues/2356
+   "known_field_indentless_sequence"_test = [] {
+      // Unindented sequence under a known key
+      {
+         std::string yaml = R"(---
+title: foo
+numbers:
+- 1
+- 2
+- 3
+...)";
+         nested_struct data{};
+         auto ec = glz::read_yaml(data, yaml);
+         expect(!ec) << glz::format_error(ec, yaml);
+         expect(data.title == "foo");
+         expect(data.numbers.size() == 3);
+         expect(data.numbers[0] == 1);
+         expect(data.numbers[1] == 2);
+         expect(data.numbers[2] == 3);
+      }
+
+      // Known key indentless sequence followed by another key
+      {
+         std::string yaml = R"(title: hello
+numbers:
+- 10
+- 20
+- 30
+title: world)";
+         nested_struct data{};
+         auto ec = glz::read_yaml(data, yaml);
+         expect(!ec) << glz::format_error(ec, yaml);
+         expect(data.title == "world");
+         expect(data.numbers.size() == 3);
+         expect(data.numbers[0] == 10);
+         expect(data.numbers[1] == 20);
+         expect(data.numbers[2] == 30);
+      }
    };
 
    "anchor_empty_node"_test = [] {
