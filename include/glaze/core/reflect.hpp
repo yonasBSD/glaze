@@ -380,6 +380,55 @@ namespace glz
    template <class T, size_t I>
    using field_t = std::remove_cvref_t<refl_t<T, I>>;
 
+   // Check if a custom_t getter (To) returns a nullable type (write side).
+   // Complement of custom_type_is_nullable which checks the From/setter (read side).
+   template <class V>
+   consteval bool custom_getter_returns_nullable()
+   {
+      if constexpr (!is_specialization_v<V, custom_t>) {
+         return false;
+      }
+      else {
+         using To = typename V::to_t;
+         using ParentT = std::remove_reference_t<decltype(std::declval<V&>().val)>;
+
+         if constexpr (std::is_member_pointer_v<To>) {
+            if constexpr (std::is_member_function_pointer_v<To>) {
+               using Ret = std::decay_t<typename return_type<To>::type>;
+               return null_t<Ret>;
+            }
+            else if constexpr (std::is_member_object_pointer_v<To>) {
+               using Value = std::decay_t<decltype(std::declval<ParentT&>().*(std::declval<To>()))>;
+               if constexpr (is_specialization_v<Value, std::function>) {
+                  using Ret = std::decay_t<typename function_traits<Value>::result_type>;
+                  return null_t<Ret>;
+               }
+               else {
+                  return null_t<Value>;
+               }
+            }
+            else {
+               return false;
+            }
+         }
+         else if constexpr (std::invocable<To, ParentT&>) {
+            using Ret = std::decay_t<std::invoke_result_t<To, ParentT&>>;
+            return null_t<Ret>;
+         }
+         else if constexpr (std::invocable<To, const ParentT&>) {
+            using Ret = std::decay_t<std::invoke_result_t<To, const ParentT&>>;
+            return null_t<Ret>;
+         }
+         else if constexpr (std::invocable<To, ParentT&, context&>) {
+            using Ret = std::decay_t<std::invoke_result_t<To, ParentT&, context&>>;
+            return null_t<Ret>;
+         }
+         else {
+            return false;
+         }
+      }
+   }
+
    template <auto Opts, class T>
    inline constexpr bool maybe_skipped = [] {
       if constexpr (reflect<T>::size > 0) {
@@ -391,10 +440,11 @@ namespace glz
             // if any type could be null then we might skip
             constexpr bool write_function_pointers = check_write_function_pointers(Opts);
             return [&]<size_t... I>(std::index_sequence<I...>) {
-               return ((always_skipped<field_t<T, I>> ||
-                        (!write_function_pointers && is_member_function_pointer<field_t<T, I>>) ||
-                        null_t<field_t<T, I>>) ||
-                       ...);
+               return (
+                  (always_skipped<field_t<T, I>> ||
+                   (!write_function_pointers && is_member_function_pointer<field_t<T, I>>) || null_t<field_t<T, I>> ||
+                   (is_specialization_v<field_t<T, I>, custom_t> && custom_getter_returns_nullable<field_t<T, I>>())) ||
+                  ...);
             }(std::make_index_sequence<N>{});
          }
          else {
@@ -425,6 +475,8 @@ namespace glz
       }
    }();
 
+   // Check if a custom_t setter (From) accepts a nullable type (read side).
+   // Complement of custom_getter_returns_nullable which checks the To/getter (write side).
    template <class V, class From>
    consteval bool custom_type_is_nullable()
    {
@@ -474,6 +526,68 @@ namespace glz
       return false;
    }
 
+   // Runtime check: invoke a custom_t getter and return whether the result is null
+   template <class V>
+   bool custom_getter_is_null(V&& custom_val, auto&& ctx)
+   {
+      using CV = std::remove_cvref_t<V>;
+      using To = typename CV::to_t;
+
+      auto check_null = [](auto&& result) {
+         using Ret = std::decay_t<decltype(result)>;
+         if constexpr (nullable_value_t<Ret>) {
+            return !result.has_value();
+         }
+         else {
+            return !bool(result);
+         }
+      };
+
+      if constexpr (std::is_member_pointer_v<To>) {
+         if constexpr (std::is_member_function_pointer_v<To>) {
+            return check_null((custom_val.val.*(custom_val.to))());
+         }
+         else if constexpr (std::is_member_object_pointer_v<To>) {
+            auto& to_val = custom_val.val.*(custom_val.to);
+            using Func = std::decay_t<decltype(to_val)>;
+            if constexpr (is_specialization_v<Func, std::function>) {
+               return check_null(to_val());
+            }
+            else {
+               return check_null(to_val);
+            }
+         }
+         else {
+            return false;
+         }
+      }
+      else if constexpr (std::invocable<To, decltype(custom_val.val)>) {
+         return check_null(std::invoke(custom_val.to, custom_val.val));
+      }
+      else if constexpr (std::invocable<To, decltype(custom_val.val), std::remove_reference_t<decltype(ctx)>&>) {
+         return check_null(std::invoke(custom_val.to, custom_val.val, ctx));
+      }
+      else {
+         return false;
+      }
+   }
+
+   // Check if a custom_t field at index I is null, given the parent value and tie.
+   // Used by JSON/CBOR/BEVE write paths to skip null custom getter results.
+   template <class T, size_t I, class Value, class Tie, class Ctx>
+   bool is_custom_field_null(Value&& value, Tie&& t, Ctx&& ctx)
+   {
+      decltype(auto) custom_val = [&]() -> decltype(auto) {
+         if constexpr (reflectable<T>) {
+            return get_member(value, get<I>(t));
+         }
+         else {
+            return get_member(value, get<I>(reflect<T>::values));
+         }
+      }();
+      return custom_getter_is_null(custom_val, ctx);
+   }
+
    template <class T, auto Opts>
    constexpr auto required_fields()
    {
@@ -505,6 +619,10 @@ namespace glz
                      using CastType = typename V::cast_type;
                      return null_t<CastType>;
                   }
+                  else if constexpr (glaze_value_t<V>) {
+                     using Inner = remove_meta_wrapper_t<V>;
+                     return null_t<Inner>;
+                  }
                   else {
                      return null_t<V>;
                   }
@@ -524,6 +642,11 @@ namespace glz
                // Handle cast_t by checking if the cast type is nullable
                using CastType = typename V::cast_type;
                fields[I] = !Opts.skip_null_members || !null_t<CastType>;
+            }
+            else if constexpr (glaze_value_t<V>) {
+               // Handle value types (structs with glaze::value) by checking the underlying type
+               using Inner = remove_meta_wrapper_t<V>;
+               fields[I] = !Opts.skip_null_members || !null_t<Inner>;
             }
             else {
                fields[I] = !Opts.skip_null_members || !null_t<V>;
