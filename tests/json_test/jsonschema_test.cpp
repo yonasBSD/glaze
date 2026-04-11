@@ -230,7 +230,7 @@ struct glz::meta<const_one_enum>
 struct schematic_substitute
 {
    using schema_number = std::optional<std::variant<std::int64_t, std::uint64_t, double>>;
-   std::optional<std::vector<std::string_view>> type{};
+   std::optional<std::variant<std::string_view, std::vector<std::string_view>>> type{};
    std::optional<std::vector<schematic_substitute>> oneOf{};
    struct schema
    {
@@ -335,8 +335,7 @@ suite schema_tests = [] {
          schematic_substitute obj{};
          auto err = read_json_ignore_unknown(obj, schema_str);
          expect(!err) << format_error(err, schema_str);
-         expect(obj.type->size() == 1);
-         expect(obj.type->at(0) == "integer");
+         expect(std::get<std::string_view>(*obj.type) == "integer");
       };
       test(one_number{});
       test(const_one_number{});
@@ -381,7 +380,7 @@ suite schema_tests = [] {
       std::string schema_str = glz::write_json_schema<std::monostate>().value_or("error");
       // reading null will of course leave the std::optional as empty, therefore check if
       // null is actually written in the schema
-      expect(schema_str == R"({"type":["null"],"$defs":{},"title":"std::monostate","const":null})");
+      expect(schema_str == R"({"type":"null","$defs":{},"title":"std::monostate","const":null})");
    };
 
    "enum oneOf has title and constant"_test = [] {
@@ -412,11 +411,9 @@ suite schema_tests = [] {
       auto err = read_json_ignore_unknown(obj, schema_str);
       expect(!err) << format_error(err, schema_str);
       expect[(obj.type.has_value())];
-      expect(obj.type->size() == 1);
-      expect(obj.type->at(0) == "array");
-      // check minItems and maxItems
-      expect[(obj.attributes.minItems.has_value())];
-      expect(obj.attributes.minItems.value() == 42);
+      expect(std::get<std::string_view>(*obj.type) == "array");
+      // check maxItems (minItems not set because Glaze allows partial reading)
+      expect[(!obj.attributes.minItems.has_value())];
       expect[(obj.attributes.maxItems.has_value())];
       expect(obj.attributes.maxItems.value() == 42);
    };
@@ -425,7 +422,7 @@ suite schema_tests = [] {
       std::string schema_str = glz::write_json_schema<required_meta>().value_or("error");
       expect(
          schema_str ==
-         R"({"type":["object"],"properties":{"a":{"$ref":"#/$defs/int32_t"},"b":{"$ref":"#/$defs/int32_t"},"reserved_1":{"$ref":"#/$defs/int32_t"},"reserved_2":{"$ref":"#/$defs/int32_t"}},"additionalProperties":false,"$defs":{"int32_t":{"type":["integer"],"minimum":-2147483648,"maximum":2147483647}},"required":["a","b"],"title":"required_meta"})");
+         R"({"type":"object","properties":{"a":{"$ref":"#/$defs/int32_t"},"b":{"$ref":"#/$defs/int32_t"},"reserved_1":{"$ref":"#/$defs/int32_t"},"reserved_2":{"$ref":"#/$defs/int32_t"}},"additionalProperties":false,"$defs":{"int32_t":{"type":"integer","minimum":-2147483648,"maximum":2147483647}},"required":["a","b"],"title":"required_meta"})");
    };
 
    "Opts.error_on_missing_keys as fallback"_test = [] {
@@ -437,11 +434,11 @@ suite schema_tests = [] {
 
       expect(
          schema_str_req ==
-         R"({"type":["object"],"properties":{"important":{"$ref":"#/$defs/int32_t"},"unimportant":{"$ref":"#/$defs/std::optional<int32_t>"}},"additionalProperties":false,"$defs":{"int32_t":{"type":["integer"],"minimum":-2147483648,"maximum":2147483647},"std::optional<int32_t>":{"type":["integer","null"],"minimum":-2147483648,"maximum":2147483647}},"required":["important"],"title":"error_on_missing_keys_test"})");
+         R"({"type":"object","properties":{"important":{"$ref":"#/$defs/int32_t"},"unimportant":{"$ref":"#/$defs/std::optional<int32_t>"}},"additionalProperties":false,"$defs":{"int32_t":{"type":"integer","minimum":-2147483648,"maximum":2147483647},"std::optional<int32_t>":{"type":["integer","null"],"minimum":-2147483648,"maximum":2147483647}},"required":["important"],"title":"error_on_missing_keys_test"})");
 
       expect(
          schema_str_nreq ==
-         R"({"type":["object"],"properties":{"important":{"$ref":"#/$defs/int32_t"},"unimportant":{"$ref":"#/$defs/std::optional<int32_t>"}},"additionalProperties":false,"$defs":{"int32_t":{"type":["integer"],"minimum":-2147483648,"maximum":2147483647},"std::optional<int32_t>":{"type":["integer","null"],"minimum":-2147483648,"maximum":2147483647}},"title":"error_on_missing_keys_test"})");
+         R"({"type":"object","properties":{"important":{"$ref":"#/$defs/int32_t"},"unimportant":{"$ref":"#/$defs/std::optional<int32_t>"}},"additionalProperties":false,"$defs":{"int32_t":{"type":"integer","minimum":-2147483648,"maximum":2147483647},"std::optional<int32_t>":{"type":["integer","null"],"minimum":-2147483648,"maximum":2147483647}},"title":"error_on_missing_keys_test"})");
    };
 
    // Demonstrates using error_on_missing_keys to mark all non-nullable fields as required in JSON schema
@@ -516,7 +513,103 @@ struct cpp_class_variant
    std::variant<identifier, std::nullopt_t> name;
 };
 
+struct point3d
+{
+   double x{};
+   double y{};
+   int z{};
+};
+
+template <>
+struct glz::meta<point3d>
+{
+   static constexpr std::string_view name = "point3d";
+   static constexpr auto value = array(&point3d::x, &point3d::y, &point3d::z);
+};
+
 suite value_type_variant_schema = [] {
+   "tuple schema uses prefixItems"_test = [] {
+      using tuple_t = std::tuple<int, std::string, bool>;
+      auto schema = glz::write_json_schema<tuple_t>().value();
+      expect(
+         schema ==
+         R"({"type":"array","prefixItems":[{"type":"integer","minimum":-2147483648,"maximum":2147483647},{"type":"string"},{"type":"boolean"}],"items":false,"$defs":{},"title":"std::tuple<int32_t,std::string,bool>","maxItems":3})")
+         << schema;
+   };
+
+   "single element tuple"_test = [] {
+      auto schema = glz::write_json_schema<std::tuple<int>>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "Failed to parse schema";
+      expect(obj->prefixItems.has_value());
+      expect(obj->prefixItems->size() == 1);
+      expect(obj->items.has_value());
+      expect(std::get<bool>(*obj->items) == false);
+   };
+
+   "glz::tuple schema"_test = [] {
+      auto schema = glz::write_json_schema<glz::tuple<int, std::string>>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "Failed to parse schema";
+      expect(obj->type.has_value());
+      expect(std::get<std::string_view>(*obj->type) == "array");
+      expect(obj->prefixItems.has_value());
+      expect(obj->prefixItems->size() == 2);
+      expect(obj->items.has_value());
+      expect(std::get<bool>(*obj->items) == false);
+   };
+
+   "nested tuple schema"_test = [] {
+      using nested_t = std::tuple<int, std::tuple<double, bool>>;
+      auto schema = glz::write_json_schema<nested_t>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "Failed to parse schema";
+      expect(obj->prefixItems.has_value());
+      expect(obj->prefixItems->size() == 2);
+      // second element should itself be an array with prefixItems
+      auto& inner = (*obj->prefixItems)[1];
+      expect(inner.type.has_value());
+      expect(std::get<std::string_view>(*inner.type) == "array");
+      expect(inner.prefixItems.has_value());
+      expect(inner.prefixItems->size() == 2);
+   };
+
+   "tuple with object type populates defs"_test = [] {
+      using tuple_t = std::tuple<int, schema_obj>;
+      auto schema = glz::write_json_schema<tuple_t>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "Failed to parse schema";
+      expect(obj->prefixItems.has_value());
+      expect(obj->prefixItems->size() == 2);
+   };
+
+   "homogeneous array items is schema ref"_test = [] {
+      auto schema = glz::write_json_schema<std::vector<int>>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "Failed to parse schema";
+      expect(obj->type.has_value());
+      expect(std::get<std::string_view>(*obj->type) == "array");
+      // items should be a $ref schema, not a boolean
+      expect(obj->items.has_value());
+      expect(std::holds_alternative<glz::schema>(*obj->items));
+      auto& ref = std::get<glz::schema>(*obj->items);
+      expect(ref.ref.has_value());
+      expect(*ref.ref == "#/$defs/int32_t");
+   };
+
+   "glaze_array_t schema"_test = [] {
+      auto schema = glz::write_json_schema<point3d>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "Failed to parse schema";
+      expect(obj->type.has_value());
+      expect(std::get<std::string_view>(*obj->type) == "array");
+      // point3d has 3 members: double, double, int
+      expect(obj->prefixItems.has_value());
+      expect(obj->prefixItems->size() == 3);
+      expect(obj->items.has_value());
+      expect(std::get<bool>(*obj->items) == false);
+   };
+
    "value_type_variant_json_schema"_test = [] {
       auto s = glz::write_json_schema<cpp_class_variant>().value();
       auto obj = glz::read_json<glz::detail::schematic>(s);
@@ -529,9 +622,137 @@ suite value_type_variant_schema = [] {
       expect(it != obj->defs->end()) << "missing def for: " << std::string(glz::name_v<variant_t>);
       if (it == obj->defs->end()) return; // avoid segfault on missing key
       expect(it->second.type.has_value());
-      auto& types = *it->second.type;
+      auto& types = std::get<std::vector<std::string_view>>(*it->second.type);
       expect(std::find(types.begin(), types.end(), "string") != types.end()) << "missing string type";
       expect(std::find(types.begin(), types.end(), "null") != types.end()) << "missing null type";
+   };
+};
+
+suite vector_pair_schema_test = [] {
+   "vector_pair_string_int_schema"_test = [] {
+      // std::vector<std::pair<std::string, int>> serializes as a JSON object by default (concatenate=true)
+      // The schema should reflect this by generating an object type, not an array type
+      auto schema = glz::write_json_schema<std::vector<std::pair<std::string, int>>>().value_or("error");
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "failed to parse schema";
+      if (!obj) return;
+      expect(obj->type.has_value());
+      expect(std::get<std::string_view>(*obj->type) == "object") << "expected object type";
+      expect(obj->additionalProperties.has_value()) << "expected additionalProperties";
+   };
+
+   "vector_pair_string_uint64_schema"_test = [] {
+      auto schema = glz::write_json_schema<std::vector<std::pair<std::string, uint64_t>>>().value_or("error");
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "failed to parse schema";
+      if (!obj) return;
+      expect(obj->type.has_value());
+      expect(std::get<std::string_view>(*obj->type) == "object") << "expected object type";
+   };
+};
+
+// Issue #2459: meta value types should produce correct schema
+struct holds_bool
+{
+   bool value;
+};
+
+template <>
+struct glz::meta<holds_bool>
+{
+   static constexpr auto value = &holds_bool::value;
+};
+
+struct holds_int
+{
+   int value;
+};
+
+template <>
+struct glz::meta<holds_int>
+{
+   static constexpr auto value = &holds_int::value;
+};
+
+struct holds_string
+{
+   std::string value;
+};
+
+template <>
+struct glz::meta<holds_string>
+{
+   static constexpr auto value = &holds_string::value;
+};
+
+struct holds_optional
+{
+   std::optional<bool> value;
+};
+
+template <>
+struct glz::meta<holds_optional>
+{
+   static constexpr auto value = &holds_optional::value;
+};
+
+// glaze_const_value_t: constexpr pointer to static const member
+struct const_value_wrapper
+{
+   static constexpr std::uint64_t const_v{42};
+   struct glaze
+   {
+      static constexpr auto value{&const_value_wrapper::const_v};
+   };
+};
+static_assert(glz::glaze_const_value_t<const_value_wrapper>);
+
+suite meta_value_schema_test = [] {
+   "holds_bool schema"_test = [] {
+      auto schema = glz::write_json_schema<holds_bool>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "failed to parse schema";
+      if (!obj) return;
+      expect(obj->type.has_value());
+      expect(std::get<std::string_view>(*obj->type) == "boolean") << schema;
+   };
+
+   "holds_int schema"_test = [] {
+      auto schema = glz::write_json_schema<holds_int>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "failed to parse schema";
+      if (!obj) return;
+      expect(obj->type.has_value());
+      expect(std::get<std::string_view>(*obj->type) == "integer") << schema;
+   };
+
+   "holds_string schema"_test = [] {
+      auto schema = glz::write_json_schema<holds_string>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "failed to parse schema";
+      if (!obj) return;
+      expect(obj->type.has_value());
+      expect(std::get<std::string_view>(*obj->type) == "string") << schema;
+   };
+
+   "holds_optional schema"_test = [] {
+      auto schema = glz::write_json_schema<holds_optional>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "failed to parse schema";
+      if (!obj) return;
+      expect(obj->type.has_value());
+      auto& types = std::get<std::vector<std::string_view>>(*obj->type);
+      expect(std::find(types.begin(), types.end(), "boolean") != types.end()) << "missing boolean";
+      expect(std::find(types.begin(), types.end(), "null") != types.end()) << "missing null";
+   };
+
+   "const_value_wrapper schema"_test = [] {
+      auto schema = glz::write_json_schema<const_value_wrapper>().value();
+      auto obj = glz::read_json<glz::detail::schematic>(schema);
+      expect(obj.has_value()) << "failed to parse schema";
+      if (!obj) return;
+      expect(obj->type.has_value());
+      expect(std::get<std::string_view>(*obj->type) == "integer") << schema;
    };
 };
 
