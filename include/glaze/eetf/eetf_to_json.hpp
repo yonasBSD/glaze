@@ -240,7 +240,7 @@ namespace glz
    } // namespace detail
 
    template <auto Opts = eetf::eetf_opts{}, contiguous EETFBuffer, class JSONBuffer>
-   requires has_value_type<EETFBuffer> && (sizeof(typename EETFBuffer::value_type) == sizeof(char))
+      requires has_value_type<EETFBuffer> && (sizeof(typename EETFBuffer::value_type) == sizeof(char))
    [[nodiscard]] inline error_ctx eetf_to_json(const EETFBuffer& term, JSONBuffer& out)
    {
       size_t ix{}; // write index
