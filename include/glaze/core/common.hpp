@@ -408,8 +408,8 @@ namespace glz
    // The same_as<T, skip> clause is not redundant with the meta_wrapper check:
    // glz::skip itself has no meta, so meta_wrapper_t<skip> is empty, not skip.
    template <class T>
-   concept always_skipped = is_includer<T> || std::same_as<T, hidden> || std::same_as<T, skip> ||
-                            std::same_as<meta_wrapper_t<T>, skip>;
+   concept always_skipped =
+      is_includer<T> || std::same_as<T, hidden> || std::same_as<T, skip> || std::same_as<meta_wrapper_t<T>, skip>;
 
    // Detect function pointers and function references (which should not be treated as nullable)
    template <class T>

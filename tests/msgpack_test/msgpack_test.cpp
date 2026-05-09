@@ -344,8 +344,7 @@ namespace msgpack_skip_marker_tests
       };
 
       "msgpack skip-marker structs_as_arrays roundtrip"_test = [] {
-         constexpr auto opts =
-            glz::opt_true<glz::opts{.format = glz::MSGPACK}, glz::structs_as_arrays_opt_tag{}>;
+         constexpr auto opts = glz::opt_true<glz::opts{.format = glz::MSGPACK}, glz::structs_as_arrays_opt_tag{}>;
          settings original{.active = false, .count = 7, .name = "world"};
          std::string buffer;
          auto write_ec = glz::write<opts>(original, buffer);
