@@ -1892,8 +1892,7 @@ namespace glz
          // a params map, split the path into a vector of segment strings, and
          // run an empty-tree walk on every request. The empty-check is O(1).
          if (!root_router.streaming_routes.routes.empty()) {
-            auto [stream_handle, stream_params] =
-               root_router.match_streaming(conn->request_.method, request.path);
+            auto [stream_handle, stream_params] = root_router.match_streaming(conn->request_.method, request.path);
             if (stream_handle) {
                request.params = std::move(stream_params);
                // Streaming handlers take over the connection (no keep-alive loop)
