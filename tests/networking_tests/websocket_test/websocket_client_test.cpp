@@ -1547,7 +1547,8 @@ suite websocket_client_tests = [] {
       std::thread client_thread([&client]() { client.context()->run(); });
 
       expect(wait_for_condition([&] { return capture->opened.load(); }))
-         << "WebSocket upgrade with query string did not reach on_open (regression: route lookup uses target instead of path)";
+         << "WebSocket upgrade with query string did not reach on_open (regression: route lookup uses target instead "
+            "of path)";
       expect(wait_for_condition([&] { return ack_received.load(); })) << "ack message was not received";
       expect(!connect_error.load()) << "Upgrade should not error";
 
