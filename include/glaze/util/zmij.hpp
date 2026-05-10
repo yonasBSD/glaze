@@ -357,7 +357,10 @@ namespace glz::zmij
 
          static auto is_negative(sig_type bits) noexcept -> bool { return bits >> (num_bits - 1); }
          static auto get_sig(sig_type bits) noexcept -> sig_type { return bits & (implicit_bit - 1); }
-         static auto get_exp(sig_type bits) noexcept -> int32_t { return static_cast<int32_t>((bits << 1) >> (num_sig_bits + 1)); }
+         static auto get_exp(sig_type bits) noexcept -> int32_t
+         {
+            return static_cast<int32_t>((bits << 1) >> (num_sig_bits + 1));
+         }
       };
 
       inline constexpr uint64_t pow10_minor[] = {
@@ -838,7 +841,8 @@ namespace glz::zmij
       };
 
       template <typename Float, typename UInt, bool OptSize>
-      ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular, const constants<OptSize>& c) noexcept -> to_decimal_result
+      ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular, const constants<OptSize>& c) noexcept
+         -> to_decimal_result
       {
          using traits = float_traits<Float>;
          int64_t bin_exp = raw_exp - traits::exp_offset;
@@ -848,7 +852,8 @@ namespace glz::zmij
          constexpr int32_t log10_2_exp = 18;
          int32_t dec_exp = 0;
          if constexpr (use_umul128_hi64) {
-            dec_exp = static_cast<int32_t>(umul128_hi64(static_cast<uint64_t>(bin_exp), log10_2_sig << (64 - log10_2_exp)));
+            dec_exp =
+               static_cast<int32_t>(umul128_hi64(static_cast<uint64_t>(bin_exp), log10_2_sig << (64 - log10_2_exp)));
          }
          else {
             dec_exp = compute_dec_exp(bin_exp);
@@ -893,11 +898,13 @@ namespace glz::zmij
             uint64_t prod = fractional * 10;
             int32_t digit = static_cast<int32_t>(prod >> float_extra_shift);
             uint64_t rem = prod & ((1ull << float_extra_shift) - 1);
-            digit += rem > (1ull << (float_extra_shift - 1)) || (rem == (1ull << (float_extra_shift - 1)) && (digit & 1));
+            digit +=
+               rem > (1ull << (float_extra_shift - 1)) || (rem == (1ull << (float_extra_shift - 1)) && (digit & 1));
             return {integral, dec_exp, digit, (round_up + round_down) == 0};
          }
          else {
-            int32_t shift = exp_shift_table<OptSize>::enable ? exp_shifts_v<OptSize>.data[bin_exp + traits::exp_offset] : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
+            int32_t shift = exp_shift_table<OptSize>::enable ? exp_shifts_v<OptSize>.data[bin_exp + traits::exp_offset]
+                                                             : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
             ZMIJ_ASM(("" : "+r"(dec_exp)));
             uint128 pow10 = c.pow10_significands[-dec_exp - 1];
             uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
