@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <span>
 #include <string_view>
@@ -94,6 +95,13 @@ struct int_array_struct
    std::vector<int> values{};
 };
 
+struct int_array_struct_pad
+{
+   int a;
+   std::vector<int> values{};
+   int b;
+};
+
 template <>
 struct glz::meta<dotted_unknown_inner>
 {
@@ -120,6 +128,13 @@ struct optional_struct
    std::optional<int> maybe = 99;
 };
 
+struct complex_optional_struct
+{
+   std::string name{};
+   std::optional<int> age{};
+   std::optional<std::string> email{};
+};
+
 struct inline_table_member
 {
    std::string key1{};
@@ -139,15 +154,65 @@ struct struct_with_inline_table
 {
    std::string name{};
    inline_table_member inline_data{};
+   std::string sname{};
 
    bool operator==(const struct_with_inline_table&) const = default;
+};
+
+struct struct_with_optional_inline_table
+{
+   int a;
+   std::optional<inline_table_member> inline_data{};
+   int b;
+};
+
+struct struct_with_unique_ptr
+{
+   int a{};
+   std::unique_ptr<int> p{};
+   int b{};
+};
+
+struct struct_with_shared_ptr
+{
+   int a{};
+   std::shared_ptr<int> p{};
+   int b{};
+};
+
+struct struct_with_unique_ptr_inline_table
+{
+   int a{};
+   std::unique_ptr<inline_table_member> data{};
+   int b{};
+};
+
+struct struct_with_shared_ptr_inline_table
+{
+   int a{};
+   std::shared_ptr<inline_table_member> data{};
+   int b{};
+};
+
+struct struct_with_nested_optional
+{
+   int a{};
+   std::optional<std::optional<int>> v{};
+   int b{};
+};
+
+struct struct_with_optional_vector
+{
+   int a{};
+   std::optional<std::vector<int>> arr{};
+   int b{};
 };
 
 template <>
 struct glz::meta<struct_with_inline_table>
 {
    using T = struct_with_inline_table;
-   static constexpr auto value = object("name", &T::name, "inline_data", &T::inline_data);
+   static constexpr auto value = object("name", &T::name, "inline_data", &T::inline_data, "sname", &T::sname);
 };
 
 struct complex_strings_struct
@@ -1246,13 +1311,15 @@ value = "string")";
 
    "read_inline_table"_test = [] {
       std::string toml_input = R"(name = "Test Person"
-inline_data = { key1 = "value1", key2 = 100 })";
+inline_data = { key1 = "value1", key2 = 100 }
+sname = "Second String")";
       struct_with_inline_table s{};
       auto error = glz::read_toml(s, toml_input);
       expect(!error) << glz::format_error(error, toml_input);
       expect(s.name == "Test Person");
       expect(s.inline_data.key1 == "value1");
       expect(s.inline_data.key2 == 100);
+      expect(s.sname == "Second String");
    };
 
    "read_complex_strings"_test = [] {
@@ -2286,6 +2353,202 @@ arr = [7, 8, 9])";
       expect(parsed.time_ms.minutes() == original.time_ms.minutes());
       expect(parsed.time_ms.seconds() == original.time_ms.seconds());
       expect(parsed.time_ms.subseconds() == original.time_ms.subseconds());
+   };
+
+   "read_optional_with_value"_test = [] {
+      std::string input = R"(name = "Test"
+age = 25
+email = "test@example.com")";
+      complex_optional_struct obj{};
+      auto ec = glz::read_toml(obj, input);
+      expect(!ec) << glz::format_error(ec, input);
+      expect(obj.name == "Test");
+      expect(obj.age.value() == 25);
+      expect(obj.email.value() == "test@example.com");
+   };
+   "read_optional_without_int_value"_test = [] {
+      std::string input = R"(name = "Test"
+age = 25)";
+      complex_optional_struct obj{};
+      auto ec = glz::read_toml(obj, input);
+      expect(!ec) << glz::format_error(ec, input);
+      expect(obj.name == "Test");
+      expect(obj.age.value() == 25);
+      expect(!obj.email.has_value());
+   };
+   "read_optional_without_string_value"_test = [] {
+      std::string input = R"(name = "Test"
+email = "test@example.com")";
+      complex_optional_struct obj{};
+      auto ec = glz::read_toml(obj, input);
+      expect(!ec) << glz::format_error(ec, input);
+      expect(obj.name == "Test");
+      expect(!obj.age.has_value());
+      expect(obj.email.value() == "test@example.com");
+   };
+   "read_optional_without_values_defval"_test = [] {
+      std::string input = R"( )";
+      optional_struct obj{};
+      auto ec = glz::read_toml(obj, input);
+      expect(!ec) << glz::format_error(ec, input);
+      expect(obj.maybe.has_value());
+      expect(obj.maybe.value() == 99);
+   };
+   "read_optional_with_inline_table"_test = [] {
+      std::string input = R"(a = 1
+inline_data = { key1 = "value1", key2 = 100 }
+b = 2)";
+      struct_with_optional_inline_table s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(s.inline_data.has_value());
+      expect(s.inline_data->key1 == "value1");
+      expect(s.inline_data->key2 == 100);
+   };
+   "read_optional_with_inline_table_missing"_test = [] {
+      std::string input = R"(a = 1
+b = 2)";
+      struct_with_optional_inline_table s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(!s.inline_data.has_value());
+   };
+   "read_unique_ptr_with_value"_test = [] {
+      std::string input = R"(a = 1
+p = 42
+b = 2)";
+      struct_with_unique_ptr s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(s.p != nullptr);
+      expect(*s.p == 42);
+   };
+   "read_unique_ptr_missing"_test = [] {
+      std::string input = R"(a = 1
+b = 2)";
+      struct_with_unique_ptr s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(s.p == nullptr);
+   };
+   "read_unique_ptr_overwrites_existing"_test = [] {
+      std::string input = R"(a = 1
+p = 7
+b = 2)";
+      struct_with_unique_ptr s{};
+      s.p = std::make_unique<int>(99);
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.p != nullptr);
+      expect(*s.p == 7);
+   };
+   "read_shared_ptr_with_value"_test = [] {
+      std::string input = R"(a = 1
+p = 5
+b = 2)";
+      struct_with_shared_ptr s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(s.p != nullptr);
+      expect(*s.p == 5);
+   };
+   "read_shared_ptr_missing"_test = [] {
+      std::string input = R"(a = 1
+b = 2)";
+      struct_with_shared_ptr s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(s.p == nullptr);
+   };
+   "read_unique_ptr_inline_table"_test = [] {
+      std::string input = R"(a = 1
+data = { key1 = "hello", key2 = 11 }
+b = 2)";
+      struct_with_unique_ptr_inline_table s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(s.data != nullptr);
+      expect(s.data->key1 == "hello");
+      expect(s.data->key2 == 11);
+   };
+   "read_shared_ptr_inline_table"_test = [] {
+      std::string input = R"(a = 1
+data = { key1 = "world", key2 = 22 }
+b = 2)";
+      struct_with_shared_ptr_inline_table s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(s.data != nullptr);
+      expect(s.data->key1 == "world");
+      expect(s.data->key2 == 22);
+   };
+   "read_nested_optional"_test = [] {
+      std::string input = R"(a = 1
+v = 33
+b = 2)";
+      struct_with_nested_optional s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(s.v.has_value());
+      expect(s.v->has_value());
+      expect(s.v->value() == 33);
+   };
+   "read_optional_vector"_test = [] {
+      std::string input = R"(a = 1
+arr = [10, 20, 30]
+b = 2)";
+      struct_with_optional_vector s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(s.arr.has_value());
+      expect(s.arr->size() == 3);
+      expect((*s.arr)[0] == 10);
+      expect((*s.arr)[1] == 20);
+      expect((*s.arr)[2] == 30);
+   };
+   "read_optional_vector_missing"_test = [] {
+      std::string input = R"(a = 1
+b = 2)";
+      struct_with_optional_vector s{};
+      auto error = glz::read_toml(s, input);
+      expect(!error) << glz::format_error(error, input);
+      expect(s.a == 1);
+      expect(s.b == 2);
+      expect(!s.arr.has_value());
+   };
+   "read_top_level_optional_int"_test = [] {
+      std::optional<int> value{};
+      auto ec = glz::read_toml(value, std::string{"42"});
+      expect(!ec) << glz::format_error(ec, std::string{"42"});
+      expect(value.has_value());
+      expect(value.value() == 42);
+   };
+   "read_top_level_unique_ptr"_test = [] {
+      std::unique_ptr<int> value{};
+      auto ec = glz::read_toml(value, std::string{"99"});
+      expect(!ec) << glz::format_error(ec, std::string{"99"});
+      expect(value != nullptr);
+      expect(*value == 99);
    };
 };
 
@@ -4237,7 +4500,8 @@ suite toml_1_1_delta_tests = [] {
 inline_data = {
   key1 = "value1",
   key2 = 100,
-})";
+}
+sname = "Second String")";
 
       struct_with_inline_table s{};
       const auto error = glz::read_toml(s, input);
@@ -4245,6 +4509,7 @@ inline_data = {
       expect(s.name == "Test Person");
       expect(s.inline_data.key1 == "value1");
       expect(s.inline_data.key2 == 100);
+      expect(s.sname == "Second String");
    };
 
    "toml_1_1_inline_table_allows_newlines_and_trailing_comma_map"_test = [] {
@@ -4370,6 +4635,20 @@ inline_data = {
       int_array_struct value{};
       const auto error = glz::read_toml(value, input);
       expect(error);
+   };
+   
+   "toml_struct_array_padded"_test = [] {
+      const std::string input = R"(a = 111
+values = [1, 2,]
+b = 222)";
+      int_array_struct_pad value{};
+      const auto error = glz::read_toml(value, input);
+      expect(not error) << glz::format_error(error, input);
+      expect(value.a == 111);
+      expect(value.values.size() == 2);
+      expect(value.values[0] == 1);
+      expect(value.values[1] == 2);
+      expect(value.b == 222);
    };
 
    "toml_1_1_basic_string_hex_escape_xHH_invalid_short"_test = [] {
