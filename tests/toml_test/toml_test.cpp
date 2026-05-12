@@ -4636,7 +4636,7 @@ sname = "Second String")";
       const auto error = glz::read_toml(value, input);
       expect(error);
    };
-   
+
    "toml_struct_array_padded"_test = [] {
       const std::string input = R"(a = 111
 values = [1, 2,]
