@@ -2482,13 +2482,16 @@ namespace glz
                b[ix++] = '.';
                const auto subsec = tod.subseconds();
                if constexpr (frac_digits == 3) {
-                  chrono_detail::write_digits<3>(b, ix, static_cast<uint64_t>(duration_cast<milliseconds>(subsec).count()));
+                  chrono_detail::write_digits<3>(b, ix,
+                                                 static_cast<uint64_t>(duration_cast<milliseconds>(subsec).count()));
                }
                else if constexpr (frac_digits == 6) {
-                  chrono_detail::write_digits<6>(b, ix, static_cast<uint64_t>(duration_cast<microseconds>(subsec).count()));
+                  chrono_detail::write_digits<6>(b, ix,
+                                                 static_cast<uint64_t>(duration_cast<microseconds>(subsec).count()));
                }
                else {
-                  chrono_detail::write_digits<9>(b, ix, static_cast<uint64_t>(duration_cast<nanoseconds>(subsec).count()));
+                  chrono_detail::write_digits<9>(b, ix,
+                                                 static_cast<uint64_t>(duration_cast<nanoseconds>(subsec).count()));
                }
             }
 

@@ -188,7 +188,8 @@ namespace glz
          // yr is in [0, 9999] (4-digit parse, validated non-negative above), which fits
          // inside std::chrono::year's [-32767, 32767] range, so the int -> year conversion
          // is in range.
-         const auto candidate = year_month_day{year{yr}, month{static_cast<unsigned>(mo)}, day{static_cast<unsigned>(dy)}};
+         const auto candidate =
+            year_month_day{year{yr}, month{static_cast<unsigned>(mo)}, day{static_cast<unsigned>(dy)}};
          if (!candidate.ok()) {
             ec = error_code::parse_error;
             return;

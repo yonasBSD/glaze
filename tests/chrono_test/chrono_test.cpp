@@ -1044,8 +1044,7 @@ suite chrono_date_only_tests = [] {
    };
 
    "struct_with_date_types"_test = [] {
-      DateRecord r{"vacation", year{2024} / month{6} / day{15},
-                   year_month_day{year{2024}, month{6}, day{22}}};
+      DateRecord r{"vacation", year{2024} / month{6} / day{15}, year_month_day{year{2024}, month{6}, day{22}}};
       auto json = glz::write_json(r);
       expect(json.value() == R"({"name":"vacation","start":"2024-06-15","end":"2024-06-22"})") << json.value();
 
